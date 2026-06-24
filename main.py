@@ -16,18 +16,18 @@ GRAY   = "\033[90m"
 BASE_URL = "http://10.0.50.10:8033/"
 API_USERNAME = "lachee"
 API_TOKEN = os.getenv("TOKEN")
-LIMIT = 15
+LIMIT = 50
 
 # Tagging
 #  cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fpga, maia, xla, lazy, vulkan, mps, meta, hpu, mtia, privateuseone
 DEVICE = 'cuda'
 TOPK = 50
-THRESHOLD = 0.9 # 0.85
+THRESHOLD = 0.98 # 0.85
 
 def main():
     # Load all images that need tagging
     creds = base64.b64encode(f"{API_USERNAME}:{API_TOKEN}".encode()).decode()
-    response = fetch_posts(BASE_URL, {
+    response = fetch_untagged(BASE_URL, {
         "Authorization": f"Token {creds}",
         "Content-Type": "application/json",
         "Accept": "application/json",
@@ -48,8 +48,9 @@ def main():
 
     # Format the images
     all_results = []
-    for post in response["results"]:
-        print(f"{BOLD}#{post['id']}{RESET} {GRAY}{post['thumbnailUrl']}{RESET} ...", end=" ", flush=True)
+    total = len(response["results"])
+    for i, post in enumerate(response["results"], 1):
+        print(f"{DIM}{i}/{total}{RESET} {BOLD}#{post['id']}{RESET} {GRAY}{post['thumbnailUrl']}{RESET} ...", end=" ", flush=True)
         src = f"{BASE_URL.rstrip('/')}/{post['thumbnailUrl']}"
         results = tagger.predict(src, topk=topk, threshold=threshold)
         print(f"{GREEN}({len(results)} tags){RESET}", end=" ", flush=True)

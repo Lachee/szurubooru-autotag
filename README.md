@@ -1,0 +1,1 @@
+Autotagger for szurubooru

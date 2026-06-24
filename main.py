@@ -1,29 +1,38 @@
 from taggerine.inference_tagger_standalone import Tagger, _fmt_json
-from szurubooru import fetch_untagged
+from szurubooru import fetch_untagged, update_post_tags, fetch_posts
 import base64
 import json
 import os
+
+RESET  = "\033[0m"
+BOLD   = "\033[1m"
+DIM    = "\033[2m"
+CYAN   = "\033[36m"
+GREEN  = "\033[32m"
+YELLOW = "\033[33m"
+GRAY   = "\033[90m"
 
 # API
 BASE_URL = "http://10.0.50.10:8033/"
 API_USERNAME = "lachee"
 API_TOKEN = os.getenv("TOKEN")
+LIMIT = 15
 
 # Tagging
 #  cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fpga, maia, xla, lazy, vulkan, mps, meta, hpu, mtia, privateuseone
 DEVICE = 'cuda'
-TOPK = 30
-THRESHOLD = 0.9
+TOPK = 50
+THRESHOLD = 0.9 # 0.85
 
 def main():
     # Load all images that need tagging
     creds = base64.b64encode(f"{API_USERNAME}:{API_TOKEN}".encode()).decode()
-    response = fetch_untagged(BASE_URL, {
+    response = fetch_posts(BASE_URL, {
         "Authorization": f"Token {creds}",
         "Content-Type": "application/json",
         "Accept": "application/json",
-    },  0, 15)
-    print(f"Found {response['total']} untagged post(s).")
+    },  0, LIMIT)
+    print(f"{CYAN}{BOLD}Found {response['total']} post(s) to tag.{RESET}")
 
     # INitialize the tagger
     tagger = Tagger(
@@ -40,12 +49,19 @@ def main():
     # Format the images
     all_results = []
     for post in response["results"]:
-        print(f"Tagging #{post['id']}: {post["thumbnailUrl"]}...")
-        src = f"{BASE_URL.rstrip('/')}/{post["thumbnailUrl"]}"
+        print(f"{BOLD}#{post['id']}{RESET} {GRAY}{post['thumbnailUrl']}{RESET} ...", end=" ", flush=True)
+        src = f"{BASE_URL.rstrip('/')}/{post['thumbnailUrl']}"
         results = tagger.predict(src, topk=topk, threshold=threshold)
-        all_results.append(_fmt_json(src, results))
+        print(f"{GREEN}({len(results)} tags){RESET}", end=" ", flush=True)
+        tags = [ t.replace(" ", "_") for t, _ in results ]
+        update_post_tags(BASE_URL, {
+            "Authorization": f"Token {creds}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }, post["id"], tags)
+        print(f"{DIM}uploaded{RESET}")
 
-    print(json.dumps(all_results, indent=2, ensure_ascii=False))
+    print(f"\n{GREEN}{BOLD}Done.{RESET}")
 
 if __name__ == "__main__":
     main()

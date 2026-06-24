@@ -30,15 +30,53 @@ def make_headers(user: str, token: str) -> dict:
     }
 
 
-def fetch_untagged(base_url: str, headers: dict, offset: int, limit: int) -> dict:
+def fetch_posts(base_url: str, headers: dict, offset: int, limit: int, query: str = "") -> dict:
     params = urllib.parse.urlencode({
-        "query": "tag-count:0",
+        "query": query,
         "offset": offset,
         "limit": limit,
         "fields": "id,thumbnailUrl,tags,score,creationTime",
     })
     url = f"{base_url.rstrip('/')}/api/posts?{params}"
     req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as ex:
+        body = ex.read().decode("utf-8", errors="replace")
+        print(f"HTTP {ex.code}: {body[:300]}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as ex:
+        print(f"Connection error: {ex.reason}", file=sys.stderr)
+        sys.exit(1)
+
+
+def fetch_untagged(base_url: str, headers: dict, offset: int, limit: int) -> dict:
+    return fetch_posts(base_url, headers, offset, limit, query="tag-count:0")
+
+
+def get_post(base_url: str, headers: dict, post_id: int) -> dict:
+    url = f"{base_url.rstrip('/')}/api/post/{post_id}"
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as ex:
+        body = ex.read().decode("utf-8", errors="replace")
+        print(f"HTTP {ex.code}: {body[:300]}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as ex:
+        print(f"Connection error: {ex.reason}", file=sys.stderr)
+        sys.exit(1)
+
+
+def update_post_tags(base_url: str, headers: dict, post_id: int, tags: list[str]) -> dict:
+    post = get_post(base_url, headers, post_id)
+    version = post["version"]
+
+    payload = json.dumps({"version": version, "tags": tags}).encode("utf-8")
+    url = f"{base_url.rstrip('/')}/api/post/{post_id}"
+    req = urllib.request.Request(url, data=payload, headers=headers, method="PUT")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))

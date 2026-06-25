@@ -55,6 +55,10 @@ def fetch_untagged(base_url: str, headers: dict, offset: int, limit: int) -> dic
     return fetch_posts(base_url, headers, offset, limit, query="tag-count:0")
 
 
+class PostNotFoundError(Exception):
+    pass
+
+
 def get_post(base_url: str, headers: dict, post_id: int) -> dict:
     url = f"{base_url.rstrip('/')}/api/post/{post_id}"
     req = urllib.request.Request(url, headers=headers)
@@ -62,6 +66,8 @@ def get_post(base_url: str, headers: dict, post_id: int) -> dict:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as ex:
+        if ex.code == 404:
+            raise PostNotFoundError(post_id)
         body = ex.read().decode("utf-8", errors="replace")
         print(f"HTTP {ex.code}: {body[:300]}", file=sys.stderr)
         sys.exit(1)

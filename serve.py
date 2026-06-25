@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, Request, Response
 
-from szurubooru import fetch_tag_implications, get_post, update_post_tags
+from szurubooru import PostNotFoundError, fetch_tag_implications, get_post, update_post_tags
 from taggerine.inference_tagger_standalone import Tagger
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -89,6 +89,8 @@ def _tag_post(post_id: int) -> None:
         update_post_tags(BASE_URL, _headers, post_id, tags)
         _processed += 1
         log.info("Post #%d: %d tags applied", post_id, len(tags))
+    except PostNotFoundError:
+        raise
     except SystemExit as e:
         # szurubooru.py calls sys.exit() on API errors — catch so the server keeps running
         _failed += 1
@@ -103,12 +105,21 @@ async def _worker() -> None:
     while True:
         post_id = await _queue.get()
         log.info("Dequeued post #%d  (%d remaining)", post_id, _queue.qsize())
+        not_found = False
         try:
             await loop.run_in_executor(None, _tag_post, post_id)
+        except PostNotFoundError:
+            log.warning("Post #%d not found, retrying in 60s", post_id)
+            not_found = True
         except asyncio.CancelledError:
+            _queue.task_done()
             raise
         finally:
             _queue.task_done()
+
+        if not_found:
+            await asyncio.sleep(60)
+            await _queue.put(post_id)
 
 
 @asynccontextmanager

@@ -33,11 +33,11 @@ info "pip is available"
 
 # --- Check huggingface-cli (hf) ---
 if ! command -v hf &>/dev/null; then
-    die "huggingface-cli not found — installing huggingface_hub[cli]..."
+    warn "huggingface-cli not found — Installing..."
     curl -LsSf https://hf.co/cli/install.sh | bash
 else
-    HF_CMD="huggingface-cli"
-    info "huggingface-cli is available"
+    HF_CMD="hf"
+    info "hf is available"
 fi
 
 # --- Download taggerine model ---

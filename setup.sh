@@ -35,6 +35,8 @@ info "pip is available"
 if ! command -v hf &>/dev/null; then
     warn "huggingface-cli not found — Installing..."
     curl -LsSf https://hf.co/cli/install.sh | bash
+    info "- Done; please run `hf auth login` and re-run the setup"
+    exit 1
 else
     HF_CMD="hf"
     info "hf is available"

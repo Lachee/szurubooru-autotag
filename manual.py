@@ -13,14 +13,17 @@ YELLOW = "\033[33m"
 GRAY   = "\033[90m"
 
 # API
-BASE_URL = "http://10.0.50.10:8033/"
-API_USERNAME = "lachee"
-API_TOKEN = os.getenv("TOKEN")
 LIMIT = 10
+
+BASE_URL   = os.getenv("SZURU_URL", "http://localhost:8033")
+USER       = os.getenv("SZURU_USER", "")
+TOKEN      = os.getenv("SZURU_TOKEN", "")
+DEVICE     = os.getenv("DEVICE", "cuda")
+CHECKPOINT = os.getenv("CHECKPOINT", "taggerine/tagger_proto.safetensors")
+VOCAB      = os.getenv("VOCAB", "taggerine/tagger_vocab_with_categories_and_alias_updated.json")
 
 # Tagging
 #  cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fpga, maia, xla, lazy, vulkan, mps, meta, hpu, mtia, privateuseone
-DEVICE = 'cuda'
 TOPK = 50
 THRESHOLD = 0.98 # 0.85
 
@@ -40,7 +43,7 @@ def resolve_implications(tags: list[str], cache: dict, base_url: str, headers: d
 
 def main():
     # Load all images that need tagging
-    creds = base64.b64encode(f"{API_USERNAME}:{API_TOKEN}".encode()).decode()
+    creds = base64.b64encode(f"{USER}:{TOKEN}".encode()).decode()
     auth_header = {
         "Authorization": f"Token {creds}",
         "Content-Type": "application/json",
@@ -54,8 +57,8 @@ def main():
 
     # initialise the tagger with all the good sshtuff
     tagger = Tagger(
-        checkpoint_path='taggerine/tagger_proto.safetensors',
-        vocab_path='taggerine/tagger_vocab_with_categories_and_alias_updated.json',
+        checkpoint_path=CHECKPOINT,
+        vocab_path=VOCAB,
         device=DEVICE,
         max_size=1024,
     )
@@ -85,5 +88,49 @@ def main():
 
     print(f"\n{GREEN}{BOLD}Done.{RESET}")
 
+def fix_implications():
+    creds = base64.b64encode(f"{API_USERNAME}:{API_TOKEN}".encode()).decode()
+    headers = {
+        "Authorization": f"Token {creds}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    data = fetch_posts(BASE_URL, headers, 0, 1, query="tag-count:1..")
+    total = data.get("total", 0)
+    print(f"{CYAN}{BOLD}Checking implications on {total} tagged post(s)...{RESET}")
+
+    implications_cache: dict[str, list[str]] = {}
+    offset = 0
+    checked = 0
+    updated = 0
+
+    while offset < total:
+        data = fetch_posts(BASE_URL, headers, offset, LIMIT, query="tag-count:1..")
+        posts = data.get("results", [])
+        if not posts:
+            break
+
+        for post in posts:
+            post_id = post["id"]
+            current = [t["names"][0] for t in post.get("tags", [])]
+            resolved = resolve_implications(current, implications_cache, BASE_URL, headers)
+            new_implied = set(resolved) - set(current)
+            if new_implied:
+                update_post_tags(BASE_URL, headers, post_id, resolved)
+                print(f"  {BOLD}#{post_id}{RESET} {GREEN}+{len(new_implied)} implied{RESET} {GRAY}{', '.join(sorted(new_implied))}{RESET}")
+                updated += 1
+            checked += 1
+
+        offset += len(posts)
+        print(f"{DIM}{checked}/{total}{RESET}", end="\r", flush=True)
+
+    print(f"\n{GREEN}{BOLD}Done.{RESET} Checked {checked}, updated {updated}.")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--fix-implications" in sys.argv:
+        fix_implications()
+    else:
+        main()

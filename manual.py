@@ -16,7 +16,7 @@ GRAY   = "\033[90m"
 BASE_URL = "http://10.0.50.10:8033/"
 API_USERNAME = "lachee"
 API_TOKEN = os.getenv("TOKEN")
-LIMIT = 100
+LIMIT = 10
 
 # Tagging
 #  cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fpga, maia, xla, lazy, vulkan, mps, meta, hpu, mtia, privateuseone
@@ -47,7 +47,7 @@ def main():
         "Accept": "application/json",
     }
 
-    response = fetch_posts(BASE_URL, auth_header,  0, LIMIT)
+    response = fetch_untagged(BASE_URL, auth_header,  0, LIMIT)
 
     total = len(response["results"])
     print(f"{CYAN}{BOLD}Found {response['total']} post(s) to tag. Going to tag {total}.{RESET}")

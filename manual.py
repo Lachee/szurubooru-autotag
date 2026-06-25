@@ -54,6 +54,9 @@ def main():
 
     total = len(response["results"])
     print(f"{CYAN}{BOLD}Found {response['total']} post(s) to tag. Going to tag {total}.{RESET}")
+    if total == 0:
+        print(f"{GREEN}{BOLD}No untagged posts found.{RESET}")
+        return
 
     # initialise the tagger with all the good sshtuff
     tagger = Tagger(

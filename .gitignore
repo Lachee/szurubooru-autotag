@@ -1,3 +1,5 @@
 taggerine/*
 __pycache__
 .idea
+.env
+.env.*

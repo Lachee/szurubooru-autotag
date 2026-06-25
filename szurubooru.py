@@ -70,6 +70,23 @@ def get_post(base_url: str, headers: dict, post_id: int) -> dict:
         sys.exit(1)
 
 
+def fetch_tag_implications(base_url: str, headers: dict, tag_name: str) -> list[str]:
+    url = f"{base_url.rstrip('/')}/api/tag/{urllib.parse.quote(tag_name, safe='')}"
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return [t["names"][0] for t in data.get("implications", []) if t.get("names")]
+    except urllib.error.HTTPError as ex:
+        if ex.code == 404:
+            return []
+        body = ex.read().decode("utf-8", errors="replace")
+        print(f"HTTP {ex.code} fetching tag {tag_name!r}: {body[:300]}", file=sys.stderr)
+        return []
+    except urllib.error.URLError:
+        return []
+
+
 def update_post_tags(base_url: str, headers: dict, post_id: int, tags: list[str]) -> dict:
     post = get_post(base_url, headers, post_id)
     version = post["version"]

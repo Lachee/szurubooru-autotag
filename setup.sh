@@ -34,6 +34,7 @@ info "pip is available"
 # --- Check huggingface-cli (hf) ---
 if ! command -v hf &>/dev/null; then
     die "huggingface-cli not found — installing huggingface_hub[cli]..."
+    curl -LsSf https://hf.co/cli/install.sh | bash
 else
     HF_CMD="huggingface-cli"
     info "huggingface-cli is available"

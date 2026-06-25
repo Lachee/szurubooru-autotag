@@ -33,14 +33,15 @@ from taggerine.inference_tagger_standalone import Tagger
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-BASE_URL   = os.getenv("SZURU_URL", "http://localhost:8033")
-USER       = os.getenv("SZURU_USER", "")
-TOKEN      = os.getenv("SZURU_TOKEN", "")
-DEVICE     = os.getenv("DEVICE", "cuda")
-HOST       = os.getenv("HOST", "0.0.0.0")
-PORT       = int(os.getenv("PORT", "8000"))
-CHECKPOINT = os.getenv("CHECKPOINT", "taggerine/tagger_proto.safetensors")
-VOCAB      = os.getenv("VOCAB", "taggerine/tagger_vocab_with_categories_and_alias_updated.json")
+BASE_URL        = os.getenv("SZURU_URL", "http://localhost:8033")
+USER            = os.getenv("SZURU_USER", "")
+TOKEN           = os.getenv("SZURU_TOKEN", "")
+DEVICE          = os.getenv("DEVICE", "cuda")
+HOST            = os.getenv("HOST", "0.0.0.0")
+PORT            = int(os.getenv("PORT", "8000"))
+CHECKPOINT      = os.getenv("CHECKPOINT", "taggerine/tagger_proto.safetensors")
+VOCAB           = os.getenv("VOCAB", "taggerine/tagger_vocab_with_categories_and_alias_updated.json")
+RETRY_NOT_FOUND = int(os.getenv("RETRY_NOT_FOUND", "5"))
 
 _threshold_env = os.getenv("THRESHOLD", "0.98")
 THRESHOLD = float(_threshold_env) if _threshold_env else None
@@ -109,7 +110,7 @@ async def _worker() -> None:
         try:
             await loop.run_in_executor(None, _tag_post, post_id)
         except PostNotFoundError:
-            log.warning("Post #%d not found, retrying in 60s", post_id)
+            log.warning(f"Post #%d not found, retrying in {RETRY_NOT_FOUND}s", post_id)
             not_found = True
         except asyncio.CancelledError:
             _queue.task_done()
@@ -118,7 +119,7 @@ async def _worker() -> None:
             _queue.task_done()
 
         if not_found:
-            await asyncio.sleep(60)
+            await asyncio.sleep(RETRY_NOT_FOUND)
             await _queue.put(post_id)
 
 

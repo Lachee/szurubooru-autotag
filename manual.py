@@ -22,10 +22,9 @@ DEVICE     = os.getenv("DEVICE", "cuda")
 CHECKPOINT = os.getenv("CHECKPOINT", "taggerine/tagger_proto.safetensors")
 VOCAB      = os.getenv("VOCAB", "taggerine/tagger_vocab_with_categories_and_alias_updated.json")
 
-# Tagging
-#  cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fpga, maia, xla, lazy, vulkan, mps, meta, hpu, mtia, privateuseone
-TOPK = 50
-THRESHOLD = 0.98 # 0.85
+_threshold_env = os.getenv("THRESHOLD", "0.98")
+THRESHOLD = float(_threshold_env) if _threshold_env else None
+TOPK      = int(os.getenv("TOPK", "50"))
 
 def resolve_implications(tags: list[str], cache: dict, base_url: str, headers: dict) -> list[str]:
     resolved = set(tags)

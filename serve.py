@@ -82,7 +82,7 @@ def load_model(model: str = MODEL, device: str = DEVICE, threshold: float = THRE
     tagger: Tagger
     if model == "pixai":
         from models.pixai import Model
-        tagger = Model(device=device, threshold_general=threshold, threshold_character=threshold)
+        tagger = Model(device=device, threshold_general=threshold, threshold_character=0.75)
     elif model == "taggerine":
         from models.taggerine import Model
         tagger = Model()

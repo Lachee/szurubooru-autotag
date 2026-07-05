@@ -1,8 +1,5 @@
-from taggerine.inference_tagger_standalone import Tagger, _fmt_json
-from szurubooru import update_post_tags, fetch_posts, fetch_tag_implications
-import base64
-import json
-import os
+import serve
+from szurubooru.api import fetch_posts, update_post_tags
 
 RESET  = "\033[0m"
 BOLD   = "\033[1m"
@@ -16,51 +13,17 @@ GRAY   = "\033[90m"
 LIMIT = 10
 RANGE_BATCH_LIMIT = 100
 
-BASE_URL   = os.getenv("SZURU_URL", "http://localhost:8033")
-USER       = os.getenv("SZURU_USER", "")
-TOKEN      = os.getenv("SZURU_TOKEN", "")
-DEVICE     = os.getenv("DEVICE", "cuda")
-CHECKPOINT = os.getenv("CHECKPOINT", "taggerine/tagger_proto.safetensors")
-VOCAB      = os.getenv("VOCAB", "taggerine/tagger_vocab_with_categories_and_alias_updated.json")
-
-_threshold_env = os.getenv("THRESHOLD", "0.98")
-THRESHOLD = float(_threshold_env) if _threshold_env else None
-TOPK      = int(os.getenv("TOPK", "50"))
-
-def resolve_implications(tags: list[str], cache: dict, base_url: str, headers: dict) -> list[str]:
-    resolved = set(tags)
-    queue = list(tags)
-    while queue:
-        tag = queue.pop()
-        if tag not in cache:
-            cache[tag] = fetch_tag_implications(base_url, headers, tag)
-        for implied in cache[tag]:
-            if implied not in resolved:
-                resolved.add(implied)
-                queue.append(implied)
-    return sorted(resolved)
-
 
 def tag_posts(query: str, batch_limit: int, description: str) -> None:
-    creds = base64.b64encode(f"{USER}:{TOKEN}".encode()).decode()
-    auth_header = {
-        "Authorization": f"Token {creds}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+    serve._headers = serve._make_headers()
 
     tagger = None
-    topk, threshold = (
-        (None, THRESHOLD) if THRESHOLD else (TOPK, None)
-    )
-    implications_cache: dict[str, list[str]] = {}
-
     total = None
     processed = 0
     offset = 0
 
     while True:
-        response = fetch_posts(BASE_URL, auth_header, offset, batch_limit, query=query)
+        response = fetch_posts(serve.BASE_URL, serve._headers, offset, batch_limit, query=query)
 
         if total is None:
             total = response["total"]
@@ -70,12 +33,7 @@ def tag_posts(query: str, batch_limit: int, description: str) -> None:
                 return
             # initialise the tagger with all the good sshtuff, lazily so we
             # don't pay startup cost when there's nothing to do
-            tagger = Tagger(
-                checkpoint_path=CHECKPOINT,
-                vocab_path=VOCAB,
-                device=DEVICE,
-                max_size=1024,
-            )
+            tagger = serve.load_model()
 
         posts = response["results"]
         if not posts:
@@ -85,14 +43,16 @@ def tag_posts(query: str, batch_limit: int, description: str) -> None:
             processed += 1
             print(f"{DIM}{processed}/{total}{RESET} {BOLD}#{post['id']}{RESET} {GRAY}{post['thumbnailUrl']}{RESET} ...", end=" ", flush=True)
 
-            results = tagger.predict(f"{BASE_URL.rstrip('/')}/{post['thumbnailUrl']}", topk=topk, threshold=threshold)
-            tags = [t.replace(" ", "_") for t, _ in results]
-            print(f"{DIM}{GREEN}({len(results)} tags)", end=" ", flush=True)
+            url = f"{serve.BASE_URL.rstrip('/')}/{post['thumbnailUrl']}"
+            image = serve._download_image(url)
+            results = tagger.tag(image)
+            tags = [tag.name for tag in results.tags]
+            print(f"{DIM}{GREEN}({len(tags)} tags)", end=" ", flush=True)
 
-            tags = resolve_implications(tags, implications_cache, BASE_URL, auth_header)
-            print(f"{DIM}{YELLOW}({len(tags) - len(results)} implied){RESET}", end=" ", flush=True)
+            tags = serve._resolve_implications(tags)
+            print(f"{DIM}{YELLOW}({len(tags) - len(results.tags)} implied){RESET}", end=" ", flush=True)
 
-            update_post_tags(BASE_URL, auth_header, post["id"], tags)
+            update_post_tags(serve.BASE_URL, serve._headers, post["id"], tags)
             print(f"{YELLOW}- {len(tags)} total tags{RESET}")
 
         offset += len(posts)
@@ -118,25 +78,20 @@ def main(redo: bool = False, start: int | None = None, end: int | None = None):
     batch_limit = RANGE_BATCH_LIMIT if (redo or start is not None) else LIMIT
     tag_posts(query=query, batch_limit=batch_limit, description=description)
 
-def fix_implications():
-    creds = base64.b64encode(f"{USER}:{TOKEN}".encode()).decode()
-    headers = {
-        "Authorization": f"Token {creds}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
 
-    data = fetch_posts(BASE_URL, headers, 0, 1, query="tag-count:1..")
+def fix_implications():
+    serve._headers = serve._make_headers()
+
+    data = fetch_posts(serve.BASE_URL, serve._headers, 0, 1, query="tag-count:1..")
     total = data.get("total", 0)
     print(f"{CYAN}{BOLD}Checking implications on {total} tagged post(s)...{RESET}")
 
-    implications_cache: dict[str, list[str]] = {}
     offset = 0
     checked = 0
     updated = 0
 
     while offset < total:
-        data = fetch_posts(BASE_URL, headers, offset, LIMIT, query="tag-count:1..")
+        data = fetch_posts(serve.BASE_URL, serve._headers, offset, LIMIT, query="tag-count:1..")
         posts = data.get("results", [])
         if not posts:
             break
@@ -144,10 +99,10 @@ def fix_implications():
         for post in posts:
             post_id = post["id"]
             current = [t["names"][0] for t in post.get("tags", [])]
-            resolved = resolve_implications(current, implications_cache, BASE_URL, headers)
+            resolved = serve._resolve_implications(current)
             new_implied = set(resolved) - set(current)
             if new_implied:
-                update_post_tags(BASE_URL, headers, post_id, resolved)
+                update_post_tags(serve.BASE_URL, serve._headers, post_id, resolved)
                 print(f"  {BOLD}#{post_id}{RESET} {GREEN}+{len(new_implied)} implied{RESET} {GRAY}{', '.join(sorted(new_implied))}{RESET}")
                 updated += 1
             checked += 1

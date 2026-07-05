@@ -14,11 +14,10 @@ Environment variables:
 import json
 import os
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from szurubooru import make_headers
+from szurubooru.szurubooru import make_headers
 
 RESET  = "\033[0m"
 BOLD   = "\033[1m"

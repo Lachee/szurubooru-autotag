@@ -1,2 +1,20 @@
-fastapi>=0.121.0
+fastapi
 uvicorn
+onnxruntime
+numpy
+pillow
+huggingface-hub
+pyyaml
+pillow-heif
+pillow-avif-plugin
+torch
+torchvision
+timm
+requests
+
+# Taggerine
+packaging
+safetensors
+python-multipart
+jinja2
+aiofiles

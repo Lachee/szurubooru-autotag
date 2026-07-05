@@ -23,12 +23,13 @@ import base64
 import logging
 import os
 from contextlib import asynccontextmanager
-
 import uvicorn
 from fastapi import FastAPI, Request, Response
-
-from szurubooru import PostNotFoundError, fetch_tag_implications, get_post, update_post_tags
-from taggerine.inference_tagger_standalone import Tagger
+from szurubooru.api import PostNotFoundError, fetch_tag_implications, get_post, update_post_tags
+from models.tagger import Tagger
+from PIL import Image
+import requests
+from io import BytesIO
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -39,13 +40,10 @@ TOKEN           = os.getenv("SZURU_TOKEN", "")
 DEVICE          = os.getenv("DEVICE", "cuda")
 HOST            = os.getenv("HOST", "0.0.0.0")
 PORT            = int(os.getenv("PORT", "8000"))
-CHECKPOINT      = os.getenv("CHECKPOINT", "taggerine/tagger_proto.safetensors")
-VOCAB           = os.getenv("VOCAB", "taggerine/tagger_vocab_with_categories_and_alias_updated.json")
 RETRY_NOT_FOUND = int(os.getenv("RETRY_NOT_FOUND", "5"))
 
-_threshold_env = os.getenv("THRESHOLD", "0.98")
-THRESHOLD = float(_threshold_env) if _threshold_env else None
-TOPK      = int(os.getenv("TOPK", "50"))
+MODEL           = os.getenv("MODEL", "pixai")
+THRESHOLD = float(os.getenv("THRESHOLD", "0.95"))
 
 _headers: dict = {}
 _tagger: Tagger | None = None
@@ -53,7 +51,6 @@ _queue: asyncio.Queue[int] = asyncio.Queue()
 _implications_cache: dict[str, list[str]] = {}
 _processed = 0
 _failed = 0
-
 
 def _make_headers() -> dict:
     creds = base64.b64encode(f"{USER}:{TOKEN}".encode()).decode()
@@ -77,6 +74,29 @@ def _resolve_implications(tags: list[str]) -> list[str]:
                 pending.append(implied)
     return sorted(resolved)
 
+def _download_image(url : str) -> Image.Image:
+    response = requests.get(url)
+    return Image.open(BytesIO(response.content))
+
+def load_model(model: str = MODEL, device: str = DEVICE, threshold: float = THRESHOLD) -> Tagger:
+    tagger: Tagger
+    if model == "pixai":
+        from models.pixai import Model
+        tagger = Model(device=device, threshold_general=threshold, threshold_character=threshold)
+    elif model == "taggerine":
+        from models.taggerine import Model
+        tagger = Model()
+    elif model == "smillingwolf" or model == "smillingwolf-vit":
+        from models.smillingwolf import Model
+        tagger = Model(
+            repo_id="SmilingWolf/wd-eva02-large-tagger-v3" if model == "smillingwolf" else "SmilingWolf/wd-vit-large-tagger-v3",
+        )
+    else:
+        raise RuntimeError(f"Unknown model: {model}")
+
+    tagger.load()
+    return tagger
+
 
 def _tag_post(post_id: int) -> None:
     global _processed, _failed
@@ -84,9 +104,10 @@ def _tag_post(post_id: int) -> None:
     try:
         post = get_post(BASE_URL, _headers, post_id)
         url = f"{BASE_URL.rstrip('/')}/{post['thumbnailUrl']}"
-        topk, threshold = (None, THRESHOLD) if THRESHOLD else (TOPK, None)
-        results = _tagger.predict(url, topk=topk, threshold=threshold)
-        tags = _resolve_implications([t.replace(" ", "_") for t, _ in results])
+        image = _download_image(url)
+
+        results = _tagger.tag(image)
+        tags = _resolve_implications([tag.name for tag in results.tags])
         update_post_tags(BASE_URL, _headers, post_id, tags)
         _processed += 1
         log.info("Post #%d: %d tags applied", post_id, len(tags))
@@ -128,18 +149,15 @@ async def lifespan(app: FastAPI):
     global _tagger, _headers
     if not USER or not TOKEN:
         raise RuntimeError("SZURU_USER and SZURU_TOKEN environment variables are required")
+
     _headers = _make_headers()
-    log.info("Loading tagger from %s ...", CHECKPOINT)
     loop = asyncio.get_running_loop()
+
     _tagger = await loop.run_in_executor(
         None,
-        lambda: Tagger(
-            checkpoint_path=CHECKPOINT,
-            vocab_path=VOCAB,
-            device=DEVICE,
-            max_size=1024,
-        ),
+        load_model,
     )
+
     log.info("Tagger ready. Starting queue worker.")
     task = asyncio.create_task(_worker())
     yield
@@ -151,7 +169,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-
 
 @app.post("/webhook")
 async def webhook(request: Request) -> Response:
